@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # In-memory data store & cache
+  redis-cache:
+    image: redis:7-alpine
+    container_name: d2d-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI + gRPC Backend Microservice
+  backend-service:
+    build:
+      context: ../door-to-door-backend
+      dockerfile: Dockerfile
+    container_name: d2d-backend
+    restart: unless-stopped
+    env_file:
+      - ../door-to-door-infra/.env
+    environment:
+      - REDIS_HOST=redis-cache
+      - REDIS_PORT=6379
+    ports:
+      - "8000:8000"
+      - "50051:50051"
+    depends_on:
+      redis-cache:
+        condition: service_healthy
+    volumes:
+      - backend_db_data:/app/data
+
+  # Nginx Gateway / Frontend Host
+  frontend-gateway:
+    image: nginx:alpine
+    container_name: d2d-gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ../door-to-door-frontend:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend-service
+
+volumes:
+  redis_data:
+  backend_db_data:
